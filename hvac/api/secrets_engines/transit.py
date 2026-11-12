@@ -465,7 +465,7 @@ class Transit(VaultApiBase):
     def rewrap_data(
         self,
         name,
-        ciphertext,
+        ciphertext=None,
         context=None,
         key_version=None,
         nonce=None,
@@ -481,7 +481,7 @@ class Transit(VaultApiBase):
 
         :param name: Specifies the name of the encryption key to re-encrypt against. This is specified as part of the URL.
         :type name: str | unicode
-        :param ciphertext: Specifies the ciphertext to re-encrypt.
+        :param ciphertext: Specifies the ciphertext to re-encrypt. Ignored if ``batch_input`` is set, otherwise required.
         :type ciphertext: str | unicode
         :param context: Specifies the base64 encoded context for key derivation. This is required if key derivation is
             enabled.
@@ -493,7 +493,7 @@ class Transit(VaultApiBase):
             encryption is enabled for this key and the key was generated with Vault 0.6.1. Not required for keys created
             in 0.6.2+.
         :type nonce: str | unicode
-        :param batch_input: Specifies a list of items to be decrypted in a single batch. When this parameter is set, if
+        :param batch_input: Specifies a list of items to be rewrapped in a single batch. When this parameter is set, if
             the parameters 'ciphertext', 'context' and 'nonce' are also set, they will be ignored. Format for the input
             goes like this: [dict(context="b64_context", ciphertext="b64_plaintext"), ...]
         :type batch_input: List[dict]
@@ -502,18 +502,16 @@ class Transit(VaultApiBase):
         :return: The JSON response of the request.
         :rtype: dict
         """
-        params = {
-            "ciphertext": ciphertext,
-        }
-        params.update(
-            utils.remove_nones(
-                {
-                    "context": context,
-                    "key_version": key_version,
-                    "nonce": nonce,
-                    "batch_input": batch_input,
-                }
-            )
+        if ciphertext is None and batch_input is None:
+            raise ValueError("ciphertext must be specified unless batch_input is set")
+        params = utils.remove_nones(
+            {
+                "ciphertext": ciphertext,
+                "context": context,
+                "key_version": key_version,
+                "nonce": nonce,
+                "batch_input": batch_input,
+            }
         )
         api_path = utils.format_url(
             "/v1/{mount_point}/rewrap/{name}",
