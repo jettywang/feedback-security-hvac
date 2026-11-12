@@ -10,6 +10,10 @@ import requests.exceptions
 from hvac import utils
 from hvac.constants.client import DEFAULT_URL
 
+# Sentinel used to distinguish "parameter not supplied for this request" from
+# an explicit ``None`` (which means "do not send the header on this request").
+_UNSET = object()
+
 
 class Adapter(metaclass=ABCMeta):
     """Abstract base class used when constructing adapters for use with the Client class."""
@@ -115,6 +119,39 @@ class Adapter(metaclass=ABCMeta):
             "timeout": timeout,
             "proxies": proxies,
         }
+
+    def clone(self, **kwargs):
+        """Create a copy of this adapter with optional per-request overrides.
+
+        The returned adapter is the same class as ``self`` and inherits every
+        configuration value (including the shared ``requests`` session), but
+        can be given a different ``namespace`` and/or ``token`` without
+        touching the adapter it was cloned from. This makes it safe to talk to
+        multiple Vault namespaces from one client: give each namespace its own
+        cloned adapter instead of mutating a shared adapter's attributes.
+
+        :param kwargs: Any :py:meth:`Adapter.__init__` parameter to override on
+            the clone, most commonly ``namespace`` and ``token``.
+        :type kwargs: dict
+        :return: A new adapter of the same type as this instance.
+        :rtype: hvac.adapters.Adapter
+        """
+        clone_kwargs = {
+            "base_uri": self.base_uri,
+            "token": self.token,
+            "cert": self._kwargs.get("cert"),
+            "verify": self._kwargs.get("verify"),
+            "timeout": self._kwargs.get("timeout"),
+            "proxies": self._kwargs.get("proxies"),
+            "allow_redirects": self.allow_redirects,
+            "session": self.session,
+            "namespace": self.namespace,
+            "ignore_exceptions": self.ignore_exceptions,
+            "strict_http": self.strict_http,
+            "request_header": self.request_header,
+        }
+        clone_kwargs.update(kwargs)
+        return self.__class__(**clone_kwargs)
 
     @staticmethod
     def urljoin(*args):
@@ -245,7 +282,16 @@ class Adapter(metaclass=ABCMeta):
         return NotImplementedError
 
     @abstractmethod
-    def request(self, method, url, headers=None, raise_exception=True, **kwargs):
+    def request(
+        self,
+        method,
+        url,
+        headers=None,
+        raise_exception=True,
+        namespace=_UNSET,
+        token=_UNSET,
+        **kwargs,
+    ):
         """Main method for routing HTTP requests to the configured Vault base_uri. Intended to be implement by subclasses.
 
         :param method: HTTP method to use with the request. E.g., GET, POST, etc.
@@ -260,6 +306,16 @@ class Adapter(metaclass=ABCMeta):
         :param raise_exception: If True, raise an exception via utils.raise_for_error(). Set this parameter to False to
             bypass this functionality.
         :type raise_exception: bool
+        :param namespace: Vault namespace to use for this request only. Defaults to the adapter's configured
+            ``namespace`` when not supplied. Pass a string to override it for this request, or pass ``None``
+            explicitly to suppress the ``X-Vault-Namespace`` header even when the adapter has one configured.
+            The adapter's ``namespace`` attribute is never modified, so this is safe for concurrent requests.
+        :type namespace: str | None
+        :param token: Vault token to use for this request only. Defaults to the adapter's configured ``token``
+            when not supplied. Pass a string to override it for this request, or pass ``None`` explicitly to
+            suppress the ``X-Vault-Token`` header even when the adapter has a token configured.
+            The adapter's ``token`` attribute is never modified, so this is safe for concurrent requests.
+        :type token: str | None
         :return: The response of the request.
         :rtype: requests.Response
         """
@@ -312,7 +368,16 @@ class RawAdapter(Adapter):
         response_json = response.json()
         return response_json["auth"]["client_token"]
 
-    def request(self, method, url, headers=None, raise_exception=True, **kwargs):
+    def request(
+        self,
+        method,
+        url,
+        headers=None,
+        raise_exception=True,
+        namespace=_UNSET,
+        token=_UNSET,
+        **kwargs,
+    ):
         """Main method for routing HTTP requests to the configured Vault base_uri.
 
         :param method: HTTP method to use with the request. E.g., GET, POST, etc.
@@ -325,6 +390,14 @@ class RawAdapter(Adapter):
         :param raise_exception: If True, raise an exception via utils.raise_for_error(). Set this parameter to False to
             bypass this functionality.
         :type raise_exception: bool
+        :param namespace: Vault namespace for this request only. When not supplied, the adapter's configured
+            ``namespace`` is used. A string overrides it for this request; ``None`` suppresses the
+            ``X-Vault-Namespace`` header. The adapter's ``namespace`` attribute is left untouched.
+        :type namespace: str | None
+        :param token: Vault token for this request only. When not supplied, the adapter's configured ``token``
+            is used. A string overrides it for this request; ``None`` suppresses the ``X-Vault-Token`` header.
+            The adapter's ``token`` attribute is left untouched.
+        :type token: str | None
         :param kwargs: Additional keyword arguments to include in the requests call.
         :type kwargs: dict
         :return: The response of the request.
@@ -343,11 +416,17 @@ class RawAdapter(Adapter):
         if self.request_header:
             headers["X-Vault-Request"] = "true"
 
-        if self.token:
-            headers["X-Vault-Token"] = self.token
+        # Resolve the request-scoped values into local variables so the shared
+        # adapter attributes are never mutated and concurrent requests cannot
+        # observe each other's namespace or token.
+        request_token = self.token if token is _UNSET else token
+        request_namespace = self.namespace if namespace is _UNSET else namespace
 
-        if self.namespace:
-            headers["X-Vault-Namespace"] = self.namespace
+        if request_token:
+            headers["X-Vault-Token"] = request_token
+
+        if request_namespace:
+            headers["X-Vault-Namespace"] = request_namespace
 
         wrap_ttl = kwargs.pop("wrap_ttl", None)
         if wrap_ttl:

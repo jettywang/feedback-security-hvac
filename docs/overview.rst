@@ -39,6 +39,11 @@ Using `Vault Enterprise namespace <https://www.vaultproject.io/docs/enterprise/n
     ...     namespace=os.getenv('VAULT_NAMESPACE'),
     ... )
 
+When one service needs to address several namespaces (or tokens) concurrently,
+do not mutate the shared ``client.adapter`` between calls. Use per-request
+``namespace`` / ``token`` overrides or a cloned adapter instead; see
+:doc:`usage/request_scoped_identity` for details.
+
 
 Using plaintext / HTTP (not recommended for anything other than development work):
 

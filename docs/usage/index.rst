@@ -4,6 +4,7 @@ Usage
 .. toctree::
    :maxdepth: 2
 
+   request_scoped_identity
    secrets_engines/index
    auth_methods/index
    system_backend/index
