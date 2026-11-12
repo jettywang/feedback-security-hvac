@@ -8,6 +8,7 @@ Secrets Engines
    aws
    azure
    database
+   lease_renewer
    gcp
    identity
    ldap
