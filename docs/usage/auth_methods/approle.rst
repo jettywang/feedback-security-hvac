@@ -86,3 +86,48 @@ Generate Secret ID
         cidr_list=['127.0.0.1/32'],
     )
     print(f'AppRole secret ID for some-role: {resp["data"]["secret_id"]}')
+
+Per-issuance limits are distinct from the role-level limits
+(``secret_id_num_uses``, ``secret_id_ttl``, ``secret_id_bound_cidrs`` set via
+:py:meth:`hvac.api.auth_methods.AppRole.create_or_update_approle`). Omitting
+``num_uses``/``ttl``/``cidr_list``/``token_bound_cidrs`` leaves the role's
+limits in place, while passing them explicitly (including ``0`` or an empty
+list) sends them to Vault as an explicit override:
+
+.. code:: python
+
+    import hvac
+    client = hvac.Client()
+
+    # Inherit the role's limits: no issuance parameters are sent.
+    resp = client.auth.approle.generate_secret_id(
+        role_name='some-role',
+    )
+
+    # Explicitly request different limits for this one Secret ID:
+    # unlimited uses (num_uses=0) and a shorter TTL than the role's.
+    resp = client.auth.approle.generate_secret_id(
+        role_name='some-role',
+        num_uses=0,
+        ttl='5m',
+        cidr_list=['127.0.0.1/32'],
+    )
+    print(f'AppRole secret ID for some-role: {resp["data"]["secret_id"]}')
+
+Create Custom Secret ID
+-----------------------
+
+:py:meth:`hvac.api.auth_methods.AppRole.create_custom_secret_id`
+
+.. code:: python
+
+    import hvac
+    client = hvac.Client()
+
+    resp = client.auth.approle.create_custom_secret_id(
+        role_name='some-role',
+        secret_id='custom-secret-id',
+        num_uses=1,
+        ttl='5m',
+    )
+    print(f'AppRole custom secret ID for some-role: {resp["data"]["secret_id"]}')

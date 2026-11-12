@@ -657,3 +657,245 @@ class TestAppRole(TestCase):
         )
 
         self.assertEqual(first=mock_response, second=response)
+
+
+class TestAppRoleSecretIDIssuanceParams(TestCase):
+    """Regression tests for per-issuance Secret ID parameters.
+
+    Role-level limits (``secret_id_num_uses``, ``secret_id_ttl``,
+    ``secret_id_bound_cidrs``) are configured on the role itself, while the
+    issuance endpoints accept their own ``num_uses``, ``ttl``, ``cidr_list``
+    and ``token_bound_cidrs`` fields. hvac must omit parameters that were not
+    passed so Vault keeps the role's limits, while still forwarding explicit
+    zero values and empty lists so the server can tell "inherit the role
+    limits" apart from "explicitly request different limits".
+    """
+
+    role_name = "testrole"
+    custom_secret_id = "custom_secret"
+
+    def _issue_secret_id(
+        self, requests_mocker, endpoint, status_code=200, response=None, **kwargs
+    ):
+        mock_url = (
+            "http://localhost:8200/v1/auth/{mount_point}/role/{role_name}/{endpoint}".format(
+                mount_point=DEFAULT_MOUNT_POINT,
+                role_name=self.role_name,
+                endpoint=endpoint,
+            )
+        )
+        adapter = requests_mocker.register_uri(
+            method="POST",
+            url=mock_url,
+            status_code=status_code,
+            json=response,
+        )
+
+        app_role = AppRole(adapter=JSONAdapter())
+        if endpoint == "secret-id":
+            result = app_role.generate_secret_id(role_name=self.role_name, **kwargs)
+        else:
+            result = app_role.create_custom_secret_id(
+                role_name=self.role_name,
+                secret_id=self.custom_secret_id,
+                **kwargs,
+            )
+        return adapter, result
+
+    @staticmethod
+    def _expected_body(endpoint, **fields):
+        body = dict(fields)
+        if endpoint == "custom-secret-id":
+            body["secret_id"] = TestAppRoleSecretIDIssuanceParams.custom_secret_id
+        return body
+
+    @parameterized.expand(
+        [
+            ("generate", "secret-id"),
+            ("custom", "custom-secret-id"),
+        ]
+    )
+    @requests_mock.Mocker()
+    def test_issuance_params_not_set_inherit_role_limits(
+        self, test_label, endpoint, requests_mocker
+    ):
+        mock_response = {
+            "auth": None,
+            "data": {
+                "secret_id": "841771dc-11c9-bbc7-bcac-6a3945a69cd9",
+                "secret_id_accessor": "84896a0c-1347-aa90-a4f6-aca8b7558780",
+            },
+            "lease_duration": 0,
+            "lease_id": "",
+            "renewable": False,
+            "request_id": "860a11a8-b835-cbab-7fce-de4edc4cf533",
+            "warnings": None,
+            "wrap_info": None,
+        }
+        adapter, response = self._issue_secret_id(
+            requests_mocker, endpoint, response=mock_response
+        )
+
+        self.assertEqual(first=mock_response, second=response)
+        self.assertEqual(first=1, second=adapter.call_count)
+        self.assertEqual(
+            first=self._expected_body(endpoint),
+            second=adapter.last_request.json(),
+        )
+
+    @parameterized.expand(
+        [
+            ("generate", "secret-id"),
+            ("custom", "custom-secret-id"),
+        ]
+    )
+    @requests_mock.Mocker()
+    def test_issuance_params_explicit_zero_forwarded(
+        self, test_label, endpoint, requests_mocker
+    ):
+        adapter, _ = self._issue_secret_id(
+            requests_mocker, endpoint, num_uses=0, ttl=0
+        )
+
+        self.assertEqual(first=1, second=adapter.call_count)
+        self.assertEqual(
+            first=self._expected_body(endpoint, num_uses=0, ttl=0),
+            second=adapter.last_request.json(),
+        )
+
+    @parameterized.expand(
+        [
+            ("generate", "secret-id"),
+            ("custom", "custom-secret-id"),
+        ]
+    )
+    @requests_mock.Mocker()
+    def test_issuance_params_explicit_values_forwarded(
+        self, test_label, endpoint, requests_mocker
+    ):
+        adapter, _ = self._issue_secret_id(
+            requests_mocker, endpoint, num_uses=3, ttl="10m"
+        )
+
+        self.assertEqual(first=1, second=adapter.call_count)
+        self.assertEqual(
+            first=self._expected_body(endpoint, num_uses=3, ttl="10m"),
+            second=adapter.last_request.json(),
+        )
+
+    @parameterized.expand(
+        [
+            ("generate", "secret-id"),
+            ("custom", "custom-secret-id"),
+        ]
+    )
+    @requests_mock.Mocker()
+    def test_issuance_params_empty_lists_forwarded(
+        self, test_label, endpoint, requests_mocker
+    ):
+        adapter, _ = self._issue_secret_id(
+            requests_mocker, endpoint, cidr_list=[], token_bound_cidrs=[]
+        )
+
+        self.assertEqual(first=1, second=adapter.call_count)
+        self.assertEqual(
+            first=self._expected_body(endpoint, cidr_list="", token_bound_cidrs=""),
+            second=adapter.last_request.json(),
+        )
+
+    @parameterized.expand(
+        [
+            ("generate", "secret-id"),
+            ("custom", "custom-secret-id"),
+        ]
+    )
+    @requests_mock.Mocker()
+    def test_issuance_params_cidr_lists_forwarded(
+        self, test_label, endpoint, requests_mocker
+    ):
+        adapter, _ = self._issue_secret_id(
+            requests_mocker,
+            endpoint,
+            cidr_list=["127.0.0.1/32", "10.0.0.0/8"],
+            token_bound_cidrs=["192.168.0.0/16"],
+        )
+
+        self.assertEqual(first=1, second=adapter.call_count)
+        self.assertEqual(
+            first=self._expected_body(
+                endpoint,
+                cidr_list="127.0.0.1/32,10.0.0.0/8",
+                token_bound_cidrs="192.168.0.0/16",
+            ),
+            second=adapter.last_request.json(),
+        )
+
+    @parameterized.expand(
+        [
+            ("generate", "secret-id"),
+            ("custom", "custom-secret-id"),
+        ]
+    )
+    @requests_mock.Mocker()
+    def test_issuance_params_constraint_conflict(
+        self, test_label, endpoint, requests_mocker
+    ):
+        conflict = {
+            "errors": [
+                "requested ttl exceeds the role's secret_id_ttl",
+            ]
+        }
+        with self.assertRaises(exceptions.InvalidRequest) as cm:
+            self._issue_secret_id(
+                requests_mocker,
+                endpoint,
+                status_code=400,
+                response=conflict,
+                num_uses=0,
+                ttl=0,
+            )
+
+        self.assertIn(
+            member="requested ttl exceeds the role's secret_id_ttl",
+            container=str(cm.exception),
+        )
+
+    @parameterized.expand(
+        [
+            ("generate", "secret-id"),
+            ("custom", "custom-secret-id"),
+        ]
+    )
+    @requests_mock.Mocker()
+    def test_issuance_params_normal_credentials(
+        self, test_label, endpoint, requests_mocker
+    ):
+        mock_response = {
+            "auth": None,
+            "data": {
+                "secret_id": "841771dc-11c9-bbc7-bcac-6a3945a69cd9",
+                "secret_id_accessor": "84896a0c-1347-aa90-a4f6-aca8b7558780",
+                "secret_id_num_uses": 0,
+                "secret_id_ttl": 600,
+            },
+            "lease_duration": 0,
+            "lease_id": "",
+            "renewable": False,
+            "request_id": "860a11a8-b835-cbab-7fce-de4edc4cf533",
+            "warnings": None,
+            "wrap_info": None,
+        }
+        adapter, response = self._issue_secret_id(
+            requests_mocker,
+            endpoint,
+            response=mock_response,
+            num_uses=0,
+            ttl=600,
+        )
+
+        self.assertEqual(first=mock_response, second=response)
+        self.assertEqual(first=1, second=adapter.call_count)
+        self.assertEqual(
+            first=self._expected_body(endpoint, num_uses=0, ttl=600),
+            second=adapter.last_request.json(),
+        )

@@ -237,6 +237,8 @@ class AppRole(VaultApiBase):
         metadata=None,
         cidr_list=None,
         token_bound_cidrs=None,
+        num_uses=None,
+        ttl=None,
         mount_point=DEFAULT_MOUNT_POINT,
         wrap_ttl=None,
     ):
@@ -251,9 +253,18 @@ class AppRole(VaultApiBase):
         :param metadata: Metadata to be tied to the Secret ID.
         :type metadata: dict
         :param cidr_list: Blocks of IP addresses which can perform login operations.
+            If not set, the role's secret_id_bound_cidrs restriction applies.
         :type cidr_list: list
         :param token_bound_cidrs: Blocks of IP addresses which can authenticate successfully.
+            If not set, the role's token_bound_cidrs restriction applies.
         :type token_bound_cidrs: list
+        :param num_uses: Number of times this Secret ID can be used to fetch a token.
+            A value of zero allows unlimited uses. If not set, the role's secret_id_num_uses is used.
+        :type num_uses: int
+        :param ttl: Duration after which this Secret ID expires. This can be specified
+            as an integer number of seconds or as a duration value like "5m".
+            If not set, the role's secret_id_ttl is used.
+        :type ttl: str | unicode | int
         :param mount_point: The "path" the method/backend was mounted on.
         :type mount_point: str | unicode
         :param wrap_ttl: Returns the request as a response-wrapping token.
@@ -274,6 +285,15 @@ class AppRole(VaultApiBase):
         params = {}
         if metadata:
             params = {"metadata": json.dumps(metadata)}
+
+        params.update(
+            utils.remove_nones(
+                {
+                    "num_uses": num_uses,
+                    "ttl": ttl,
+                }
+            )
+        )
 
         list_of_strings_params = {
             "cidr_list": cidr_list,
@@ -301,6 +321,8 @@ class AppRole(VaultApiBase):
         metadata=None,
         cidr_list=None,
         token_bound_cidrs=None,
+        num_uses=None,
+        ttl=None,
         mount_point=DEFAULT_MOUNT_POINT,
         wrap_ttl=None,
     ):
@@ -317,9 +339,18 @@ class AppRole(VaultApiBase):
         :param metadata: Metadata to be tied to the Secret ID.
         :type metadata: dict
         :param cidr_list: Blocks of IP addresses which can perform login operations.
+            If not set, the role's secret_id_bound_cidrs restriction applies.
         :type cidr_list: list
         :param token_bound_cidrs: Blocks of IP addresses which can authenticate successfully.
+            If not set, the role's token_bound_cidrs restriction applies.
         :type token_bound_cidrs: list
+        :param num_uses: Number of times this Secret ID can be used to fetch a token.
+            A value of zero allows unlimited uses. If not set, the role's secret_id_num_uses is used.
+        :type num_uses: int
+        :param ttl: Duration after which this Secret ID expires. This can be specified
+            as an integer number of seconds or as a duration value like "5m".
+            If not set, the role's secret_id_ttl is used.
+        :type ttl: str | unicode | int
         :param mount_point: The "path" the method/backend was mounted on.
         :type mount_point: str | unicode
         :param wrap_ttl: Returns the request as a response-wrapping token.
@@ -341,6 +372,15 @@ class AppRole(VaultApiBase):
 
         if metadata:
             params["metadata"] = json.dumps(metadata)
+
+        params.update(
+            utils.remove_nones(
+                {
+                    "num_uses": num_uses,
+                    "ttl": ttl,
+                }
+            )
+        )
 
         list_of_strings_params = {
             "cidr_list": cidr_list,
