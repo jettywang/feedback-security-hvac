@@ -343,8 +343,12 @@ class RawAdapter(Adapter):
         if self.request_header:
             headers["X-Vault-Request"] = "true"
 
-        if self.token:
-            headers["X-Vault-Token"] = self.token
+        # A per-request token takes precedence over the adapter's client token
+        # without mutating the shared ``token`` attribute used by other requests.
+        request_token = kwargs.pop("token", None)
+        token = request_token if request_token is not None else self.token
+        if token:
+            headers["X-Vault-Token"] = token
 
         if self.namespace:
             headers["X-Vault-Namespace"] = self.namespace

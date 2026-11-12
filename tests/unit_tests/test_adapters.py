@@ -319,3 +319,33 @@ class TestAdapterVerify(TestCase):
             c = Client()
         assert c._adapter.session.proxies == proxies
         assert c._adapter.session
+
+
+class TestPerRequestToken:
+    def test_request_token_overrides_client_token(self):
+        base_uri = "http://localhost:8200"
+        request_path = "v1/sys/wrapping/unwrap"
+        mock_url = f"{base_uri}/{request_path}"
+        adapter = adapters.JSONAdapter(base_uri=base_uri, token="shared-client-token")
+
+        with requests_mock.mock() as requests_mocker:
+            requests_mocker.register_uri("POST", mock_url, json={}, status_code=200)
+            adapter.post(request_path, token="per-request-token")
+            sent_token = requests_mocker.last_request.headers["X-Vault-Token"]
+
+        assert sent_token == "per-request-token"
+        assert adapter.token == "shared-client-token"
+
+    def test_without_request_token_uses_client_token(self):
+        base_uri = "http://localhost:8200"
+        request_path = "v1/sys/health"
+        mock_url = f"{base_uri}/{request_path}"
+        adapter = adapters.JSONAdapter(base_uri=base_uri, token="shared-client-token")
+
+        with requests_mock.mock() as requests_mocker:
+            requests_mocker.register_uri("GET", mock_url, json={}, status_code=200)
+            adapter.get(request_path)
+            sent_token = requests_mocker.last_request.headers["X-Vault-Token"]
+
+        assert sent_token == "shared-client-token"
+        assert adapter.token == "shared-client-token"
